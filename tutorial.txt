@@ -1,0 +1,202 @@
+################## 01 SOURCES LIST
+
+Alterar o arquivo:
+$ sudo nano /etc/apt/sources.list
+
+deb http://deb.debian.org/debian bookworm main contrib non-free
+deb-src http://deb.debian.org/debian bookworm main contrib non-free
+
+deb http://deb.debian.org/debian-security/ bookworm-security main contrib non-free
+deb-src http://deb.debian.org/debian-security/ bookworm-security main contrib non-free
+
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free
+deb-src http://deb.debian.org/debian bookworm-updates main contrib non-free
+
+
+link: https://limaalysson.github.io/debian_files/sources.list
+
+
+################## 02 NETWORKING
+
+Adicionar no arquivo:
+$ sudo nano /etc/network/interfaces
+
+# Rede secundária
+auto eno1 inet static
+address 172.16.1.1
+netmask 255.255.255.0
+
+
+Reiniciar a rede:
+$ sudo ip addr flush dev eno1
+$ sudo systemctl restart networking
+
+Configurar rede sem fio sem senha:
+auto wlan0
+iface wlan0 inet dhcp
+wireless-essid nomedarede
+
+Configurar rede sem fio com senha:
+auto wlan0
+iface wlan0 inet dhcp
+wpa-ssid NomeDaRede
+wpa-psk senha
+
+
+################## 03 SSH
+
+Instalar o SSH:
+$ sudo apt update
+$ sudo apt install openssh-server
+
+Alterar o arquivo:
+$ sudo nano /etc/ssh/sshd_config
+
+Port 34000
+PermitRootLogin yes
+
+
+Reiniciar o serviço:
+$ sudo systemctl restart sshd
+
+
+################## 04 DHCP
+
+Instalar o servidor DHCP:
+$ sudo apt install isc-dhcp-server
+
+Configurar o arquivo:
+$ sudo nano /etc/dhcp/dhcpd.conf
+
+Adicionar as linhas:
+log-facility local7;
+authoritative;
+
+# configuração do dhcp
+subnet 172.16.0.0 netmask 255.255.0.0 {
+ range 172.16.1.0 172.16.2.255;
+ option routers 172.16.10.200;
+ option domain-name-servers 208.67.220.220;
+}
+
+# configuração de reserva de ip
+host micro01 {
+ hardware ethernet 11:22:33:AA:BB:CC;
+ fixed-address 172.16.20.1;
+ option domain-name-servers 208.67.222.222;
+}
+
+
+
+Associar interfaces:
+$ sudo nano /etc/default/isc-dhcp-server
+
+Alterar a linha: 
+INTERFACESv4=”eno1”
+
+
+Reiniciar o serviço:
+$ sudo systemctl restart isc-dhcp-server.service
+
+
+
+################## 05 WEBMIN
+
+Adicionar repositório do Webmin:
+$ sudo curl -o webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh
+
+Instalar repositório:
+$ sh webmin-setup-repo.sh
+
+Instalar webmin:
+$ sudo apt-get install webmin --install-recommends
+
+Corrigir dependências:
+$ sudo apt --fix-broken install
+
+Reiniciar serviço:
+$ sudo systemctl restart webmin
+
+O arquivo de configurações fica localizado em:
+$ sudo nano /etc/webmin/miniserv.conf
+
+
+################## 06 NAT
+
+nano /etc/sysctl.conf
+descomentar a linha: #net.ipv4.ip_forward=1
+salvar arquivo: sudo sysctl -p
+
+sudo apt install iptables
+
+sudo iptables -t nat -A POSTROUTING -o sua-interface-wan -j MASQUERADE
+
+sudo iptables -A FORWARD -i sua-interface-lan -o sua-interface-wan -j ACCEPT
+
+sudo iptables -A FORWARD -i sua-interface-wan -o sua-interface-lan -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+sudo apt update
+sudo apt install iptables-persistent
+sudo netfilter-persistent save
+
+sudo systemctl restart isc-dhcp-server.service
+
+
+################## 07 SQUID
+
+sudo apt update && upgrade
+sudo apt install squid -y
+sudo systemctl status squid
+
+sudo cp /etc/squid/squid.conf /etc/squid/squid.conf.bkp
+
+limpar o arquivo de config e jogar as configs corretas:
+
+acl rede_local src 10.10.0.0/16
+
+acl Safe_ports port 80
+acl Safe_ports port 443
+acl Safe_ports port 21
+acl Safe_ports port 10000
+acl Safe_ports port 34000
+
+acl CONNECT method CONNECT
+
+acl sites_bloqueados dstdomain .facebook.com
+acl regex_bloq url_regex -i instagram
+acl horario_proibido time SMTWHFA 07:00-18:00
+
+http_access deny sites_bloqueados
+http_access deny regex_bloq horario_proibido
+http_access deny !Safe_ports
+http_access deny CONNECT !Safe_ports
+
+http_access allow localhost
+http_access allow rede_local
+http_access deny all
+
+http_port 3128
+
+cache_dir ufs /var/spool/squid 500 16 256
+
+coredump_dir /var/spool/squid
+
+visible_hostname proxy.debian.srv
+
+forwarded_for off
+via off
+
+logformat combined %>a %ui %un [%tl] "%rm %ru HTTP/%rv" %>Hs %<st "%{Referer}>h" "%{User-Agent}>h" %Ss:%Sh
+access_log daemon:/var/log/squid/access.log combined
+
+
+
+
+
+Link: https://limaalysson.github.io/debian_files/squid.conf
+usar wget pra pegar do link
+verificar erros no arquivo: sudo squid -k parse
+sudo systemctl restart squid
+
+comando para visualizar os logs: sudo tail -f /var/log/squid/access.log
+após isso deve-se configurar o proxy no navegador
